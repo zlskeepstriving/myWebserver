@@ -6,6 +6,7 @@
 #include<stdlib.h>
 #include<unistd.h>
 #include<signal.h>
+#include<string>
 #include<sys/types.h>
 #include<arpa/inet.h>
 #include<exception>
@@ -16,7 +17,9 @@
 #include<errno.h>
 #include<string.h>
 #include<sys/uio.h>
-#include"locker.h"
+#include<map>
+#include"../lock/locker.h"
+#include "../mysqlPool/sql_connection_pool.h"
 
 class http_conn {
 public:
@@ -27,7 +30,17 @@ public:
     static const int FILENAME_LEN = 200; //文件名的最大长度
 
     // HTTP请求方法，这里只支持GET
-    enum METHOD {GET = 0, POST, HEAD, PUT, DELETE, TRACE, OPTIONS};
+    enum METHOD {
+        GET = 0,
+        POST, 
+        HEAD, 
+        PUT, 
+        DELETE, 
+        TRACE, 
+        OPTIONS, 
+        CONNECT, 
+        PATH
+    };
 
     /*
         解析客户端请求时，主状态机的状态
@@ -35,7 +48,11 @@ public:
         CHECK_STATE_HEADER: 当前正在分析头部字段
         CHECK_STATE_CONTENT: 当前正在解析请求体
     */
-    enum CHECK_STATE {CHECK_STATE_REQUESTLINE = 0, CHECK_STATE_HEADER, CHECK_STATE_CONTENT};
+    enum CHECK_STATE {
+        CHECK_STATE_REQUESTLINE = 0, 
+        CHECK_STATE_HEADER, 
+        CHECK_STATE_CONTENT
+    };
 
     /*
         从状态机的三种可能状态，即行的读取状态，分别表示：
@@ -43,7 +60,11 @@ public:
         LINE_BAD： 行出错
         LINE_OPEN：行数据尚不完整
     */
-    enum LINE_STATUS {LINE_OK = 0, LINE_BAD, LINE_OPEN};
+    enum LINE_STATUS {
+        LINE_OK = 0, 
+        LINE_BAD, 
+        LINE_OPEN
+    };
 
     /*
         服务器处理HTTP请求的可能结果，报文解析的结果
@@ -56,17 +77,31 @@ public:
         INTERNAL_ERROR: 表示服务器内部错误
         CLOSED_CONNTECTION: 表示客户端已经关闭连接了 
     */
-    enum HTTP_CODE {NO_REQUEST, GET_REQUEST, BAD_REQUEST, NO_RESOURCE, FORBIDDEN_REQUEST, FILE_REQUEST, INTERNAL_ERROR, CLOSED_CONNTECTION};
+    enum HTTP_CODE {
+        NO_REQUEST, 
+        GET_REQUEST, 
+        BAD_REQUEST, 
+        NO_RESOURCE, 
+        FORBIDDEN_REQUEST, 
+        FILE_REQUEST, 
+        INTERNAL_ERROR, 
+        CLOSED_CONNTECTION
+    };
 
 public:
     http_conn() {}
     ~http_conn() {}
 public:
     void process(); //处理客户端的请求
-    void init(int conn_fd, const sockaddr_in& client_address); //初始化新接收的http连接
-    void close_conn(); //关闭连接
+    void init(int connfd, const sockaddr_in& client_address, char*, int, int, std::string user, std::string passwd, std::string sqlname); //初始化新接收的http连接
+    void close_conn(bool real_close = true); //关闭连接
     bool read(); //非阻塞读
     bool write(); //非阻塞写
+    bool read_once();
+    sockaddr_in *getAddress() {
+        return &m_address;
+    }
+    void initMysqlResult(connection_pool *connPool);
 
 private:
     void init(); //初始化连接
@@ -92,6 +127,12 @@ private:
     bool add_linger();
     bool add_blank_line();
 
+public:
+    int improv;
+    int m_state; //读为0, 写为1
+    MYSQL *mysql;
+    int timer_flag;
+
 private:
     int m_sockfd; // 该http连接的socket文件描述符
     sockaddr_in m_address; //通信的socket地址
@@ -114,9 +155,23 @@ private:
     struct stat m_file_stat; //目标文件的状态,用来判断文件是否存在、是否为目录、是否可读，并获取文件大小等信息
     struct iovec m_iv[2]; //采用writev来执行写操作
     int m_iv_count; //被写内存块的数量
+    int cgi; //是否启用的POST
+    char* m_string; //存储请求头数据
+    int bytes_to_send;
+    int bytes_have_send;
+    char* doc_root;
+
+    std::map<std::string, std::string> m_users;
+    int m_trig_mode;
+    int m_close_log;
+
+    char sql_user[100];
+    char sql_passwd[100];
+    char sql_name[100];
 
     CHECK_STATE m_check_state; //主状态机当前所处的状态
     METHOD m_method; //请求方法
+
 };
 
 

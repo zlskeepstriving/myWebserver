@@ -4,13 +4,15 @@
 #include <pthread.h>
 #include <list>
 #include "../lock/locker.h"
+#include "../mysqlPool/sql_connection_pool.h"
 #include <cstdio>
 
 template<typename T>
 class ThreadPool {
 public:
-    ThreadPool(int thread_number = 8, int max_requests = 10000);
-    bool append(T *request);
+    ThreadPool(int actor_model, connection_pool *connPool, int thread_number = 8, int max_requests = 10000);
+    bool append(T *request, int state);
+    bool append_p(T *request);
     ~ThreadPool();
 
 private:
@@ -28,6 +30,8 @@ private:
     Sem m_queue_stat;
     // 是否结束线程
     bool m_stop;
+    connection_pool *m_connPool; //数据库
+    int m_actor_model; //模型切换
 
 private:
     //为什么worker一定要是static，因为pthread_create()第三个参数为void*,普通成员函数有一个隐式的this指针而无法通过编译
@@ -36,9 +40,9 @@ private:
 };
 
 template<typename T>
-ThreadPool<T>::ThreadPool(int thread_number, int max_requests) : 
-    m_thread_number(thread_number), m_max_requests(max_requests), 
-    m_stop(false), m_threads(NULL) {
+ThreadPool<T>::ThreadPool(int actor_model, connection_pool *connPool, int thread_number, int max_requests) : 
+    m_actor_model(actor_model), m_thread_number(thread_number), m_max_requests(max_requests), 
+    m_stop(false), m_threads(NULL), m_connPool(connPool) {
         if ( (thread_number <= 0) || (max_requests <= 0)) {
             throw std::exception();
         }
@@ -71,7 +75,22 @@ ThreadPool<T>::~ThreadPool() {
 }
 
 template<typename T>
-bool ThreadPool<T>::append(T* request) {
+bool ThreadPool<T>::append(T *request, int state) {
+    m_queue_locker.lock();
+    if (m_work_queue.size() > m_max_requests) {
+        m_queue_locker.unlock();
+        return false;
+    }
+
+    request->m_state = state;
+    m_work_queue.push_back(request);
+    m_queue_locker.unlock();
+    m_queue_stat.post();
+    return true;
+}
+
+template<typename T>
+bool ThreadPool<T>::append_p(T* request) {
     m_queue_locker.lock();
     if (m_work_queue.size() > m_max_requests) {
         m_queue_locker.unlock();
@@ -108,7 +127,29 @@ void ThreadPool<T>::run() {
         if (!request) {
             continue;
         }
-        request->process();
+        if (m_actor_model == 1) {
+            if (request->m_state == 0) {
+                if (request->read_once()) {
+                    request->improv = 1;
+                    connectionRAII mysqlconn(&request->mysql, m_connPool);
+                    request->process();
+                } else {
+                    request->improv = 1;
+                    request->timer_flag = 1;
+                }
+            } else {
+                if (request->write()) {
+                    request->improv = 1;
+                } else {
+                    request->improv = 1;
+                    request->timer_flag = 1;
+                }
+            }
+        } else {
+            connectionRAII mysqlconn(&request->mysql, m_connPool);
+            printf("55555555555555555--------\n");
+            request->process();
+        }
     }
 }
 

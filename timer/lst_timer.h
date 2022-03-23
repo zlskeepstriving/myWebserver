@@ -33,7 +33,7 @@ class util_timer {
 public:
     util_timer(): prev(nullptr), next(nullptr) {}
 
-private:
+public:
     time_t expire;
     
     void (* cb_func)(client_data* ); //任务回调函数
@@ -85,7 +85,7 @@ public:
 
     void show_error(int connfd, const char* info);
 
-private:
+public:
     static int* u_pipefd;
     sort_timer_lst m_timer_lst;
     static int u_epollfd;

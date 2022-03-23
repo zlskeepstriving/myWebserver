@@ -155,7 +155,7 @@ void Utils::addfd(int epollfd, int fd, bool one_shot, int trigMode) {
     if (one_shot) {
         ev.events |= EPOLLONESHOT;
     }
-    epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &ev);
     setNonblocking(fd);
 }
 
@@ -168,7 +168,7 @@ void Utils::sig_handler(int sig) {
 }
 
 void Utils::addSig(int sig, void(handler)(int), bool restart) {
-    sigaction sa;
+    struct sigaction sa;
     memset(&sa, '\0', sizeof(sa));
     sa.sa_handler = handler;
     if (restart) {
